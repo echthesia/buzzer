@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,9 +47,20 @@ func TestRunHealthCheck(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	addr := strings.TrimPrefix(ts.URL, "http://") // host:port
+	addr := strings.TrimPrefix(ts.URL, "http://") // 127.0.0.1:port
 	if got := runHealthCheck(addr); got != 0 {
 		t.Fatalf("healthy server: runHealthCheck = %d, want 0", got)
+	}
+	// The container's default bind address is wildcard (":8080"); the probe must
+	// rewrite an empty/wildcard host to loopback and still reach the server.
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("SplitHostPort(%q): %v", addr, err)
+	}
+	for _, a := range []string{":" + port, "0.0.0.0:" + port} {
+		if got := runHealthCheck(a); got != 0 {
+			t.Fatalf("wildcard addr %q: runHealthCheck = %d, want 0", a, got)
+		}
 	}
 	// Nothing listening on this port -> probe should fail.
 	if got := runHealthCheck("127.0.0.1:1"); got == 0 {

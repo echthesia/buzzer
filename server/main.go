@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -239,18 +239,23 @@ func preview(token string) string {
 // GET /health on the local listener, returning 0 when it answers 200 and 1
 // otherwise. Kept dependency-free so the runtime image needs no shell or curl.
 func runHealthCheck(addr string) int {
-	host := addr
-	if strings.HasPrefix(host, ":") {
-		host = "127.0.0.1" + host
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: bad listen address %q: %v\n", addr, err)
+		return 1
+	}
+	// A wildcard/empty bind host (":8080", "0.0.0.0:8080", "[::]:8080") isn't a
+	// valid connect target — probe loopback instead.
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
 	}
 	client := &http.Client{Timeout: 4 * time.Second}
-	resp, err := client.Get("http://" + host + "/health")
+	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/health")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
 		return 1
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "healthcheck: unexpected status %d\n", resp.StatusCode)
 		return 1
