@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Claude Code local settings (personal, per-machine)
+.claude/settings.local.json
+
+# Xcode user-specific state
+**/xcuserdata/
+*.xcuserstate
