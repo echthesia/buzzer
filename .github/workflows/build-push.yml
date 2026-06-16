@@ -1,0 +1,55 @@
+name: build-push
+
+# Build the Buzzer relay image and publish it to GHCR. noema pulls
+# ghcr.io/echthesia/buzzer:latest under AutoUpdate=registry (see the infra repo).
+# First-party CI image — same pattern as dabney-anagrams / livesync-bridge.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - server/**
+      - .github/workflows/build-push.yml
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/buzzer
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/Containerfile
+          platforms: linux/amd64   # noema is x86_64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

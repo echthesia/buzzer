@@ -59,6 +59,24 @@ uptime checks.
 > The relay does **not** prune tokens on `BadDeviceToken` (it's usually an
 > environment mismatch, not a dead device) — only on `Unregistered` (410).
 
+## Running as a container
+
+The relay ships as a small image — a static Go binary on `distroless/static` (no
+shell, no package manager). CI ([`.github/workflows/build-push.yml`](../.github/workflows/build-push.yml))
+publishes it to `ghcr.io/echthesia/buzzer`; on noema it runs as a Quadlet unit
+(see the `infra` repo). All config is via the env vars above; the two secrets —
+the `.p8` key (mounted) and `BUZZER_TOKEN` — come from podman secrets, and
+`tokens.json` persists on a mounted `/data` volume.
+
+The image's `HEALTHCHECK` invokes the binary's own probe (so the shell-less image
+needs no `curl`/`wget`):
+
+```sh
+buzzer -healthcheck   # GET /health on $LISTEN_ADDR; exit 0 if 200, else non-zero
+```
+
+This is also the signal `podman auto-update` uses to roll back a bad image pull.
+
 ## Endpoints
 
 ### `POST /register`

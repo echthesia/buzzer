@@ -3,10 +3,14 @@ package main
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // Config holds the relay's runtime configuration, all sourced from env vars.
@@ -49,7 +53,19 @@ type server struct {
 }
 
 func main() {
+	healthcheck := flag.Bool("healthcheck", false,
+		"probe the local /health endpoint and exit 0 (healthy) or non-zero — used as the container HEALTHCHECK")
+	flag.Parse()
+
 	cfg := loadConfig()
+
+	// Container HEALTHCHECK path: the same binary self-probes /health, so the
+	// runtime image needs no shell or curl (it ships as distroless/static). The
+	// probe targets the configured LISTEN_ADDR, which the health process inherits
+	// from the container's environment.
+	if *healthcheck {
+		os.Exit(runHealthCheck(cfg.ListenAddr))
+	}
 
 	store, err := NewTokenStore(cfg.TokensFile)
 	if err != nil {
@@ -217,4 +233,27 @@ func preview(token string) string {
 		return token
 	}
 	return token[:8]
+}
+
+// runHealthCheck is the container HEALTHCHECK probe (see the -healthcheck flag):
+// GET /health on the local listener, returning 0 when it answers 200 and 1
+// otherwise. Kept dependency-free so the runtime image needs no shell or curl.
+func runHealthCheck(addr string) int {
+	host := addr
+	if strings.HasPrefix(host, ":") {
+		host = "127.0.0.1" + host
+	}
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Get("http://" + host + "/health")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "healthcheck: unexpected status %d\n", resp.StatusCode)
+		return 1
+	}
+	return 0
 }

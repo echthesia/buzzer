@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+#
+# Buzzer relay image. Multi-stage: build a static Go binary, then ship it on
+# distroless/static (no shell, no package manager — minimal attack surface). The
+# binary self-probes via `-healthcheck`, so the runtime image needs no curl/wget.
+# Published by CI to ghcr.io/echthesia/buzzer; deployed on noema as a Quadlet unit.
+
+# --- build ---
+FROM docker.io/library/golang:1.26 AS build
+WORKDIR /src
+# Resolve modules first so the layer caches unless go.mod/go.sum change.
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# CGO off -> fully static; trim paths and strip for a smaller, reproducible binary.
+ENV CGO_ENABLED=0 GOOS=linux
+RUN go build -trimpath -ldflags="-s -w" -o /out/buzzer .
+
+# --- runtime ---
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/buzzer /buzzer
+# Persisted device tokens live here; mount a writable volume at /data.
+ENV TOKENS_FILE=/data/tokens.json
+WORKDIR /data
+EXPOSE 8080
+USER nonroot:nonroot
+ENTRYPOINT ["/buzzer"]
+# Exec form (no shell) — the binary GETs its own /health and exits 0/non-zero.
+# This is the rollback signal podman-auto-update uses after pulling a new image.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["/buzzer", "-healthcheck"]
