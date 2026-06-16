@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Ad Hoc distribution: a signed build for a fixed set of registered
+	     devices. Crucially it uses the PRODUCTION APNs environment (unlike an
+	     Xcode dev build's sandbox token), so the device token works against the
+	     production Buzzer relay. "release-testing" is Xcode 15.3+'s name for the
+	     old "ad-hoc" method. -->
+	<key>method</key>
+	<string>release-testing</string>
+	<key>teamID</key>
+	<string>9363F8639X</string>
+	<!-- Let Xcode manage the distribution cert + Ad Hoc profile (registers the
+	     device when run with -allowProvisioningUpdates). -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>compileBitcode</key>
+	<false/>
+</dict>
+</plist>
