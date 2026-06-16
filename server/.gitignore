@@ -1,0 +1,8 @@
+# APNs auth key — NEVER commit this.
+*.p8
+
+# Persisted device tokens.
+tokens.json
+
+# Compiled relay binary.
+/server

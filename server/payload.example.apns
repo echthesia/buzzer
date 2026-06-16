@@ -1,0 +1,9 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Buzzer",
+      "body": "Local test via simctl push"
+    },
+    "sound": "default"
+  }
+}
