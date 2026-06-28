@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +40,89 @@ func TestRequireAuth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsHTTPURL(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"https://example.com/icon.png", true},
+		{"http://example.com/icon.png", true},
+		{"https://host", true},
+		{"", false},
+		{"ftp://example.com/icon.png", false},
+		{"file:///etc/passwd", false},
+		{"/relative/icon.png", false},
+		{"example.com/icon.png", false}, // no scheme
+		{"https://", false},             // no host
+	}
+	for _, tc := range cases {
+		if got := isHTTPURL(tc.in); got != tc.want {
+			t.Errorf("isHTTPURL(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// marshalPayload renders an Alert's APNs payload to a generic map for assertions.
+func marshalPayload(t *testing.T, a Alert) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(buildPayload(a))
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	return m
+}
+
+func TestBuildPayloadCommunicationKeys(t *testing.T) {
+	// A plain alert carries no mutable-content flag and no icon/sender keys.
+	t.Run("plain alert omits comms keys", func(t *testing.T) {
+		m := marshalPayload(t, Alert{Title: "Buzz", Body: "hi"})
+		aps := m["aps"].(map[string]any)
+		if _, ok := aps["mutable-content"]; ok {
+			t.Error("mutable-content set on a plain alert")
+		}
+		if _, ok := m["icon"]; ok {
+			t.Error("icon key present on a plain alert")
+		}
+		if _, ok := m["sender"]; ok {
+			t.Error("sender key present on a plain alert")
+		}
+	})
+
+	// An icon (or sender) flips mutable-content on and surfaces the custom keys at
+	// the top level, where the Notification Service Extension reads them.
+	t.Run("icon+sender set comms keys", func(t *testing.T) {
+		m := marshalPayload(t, Alert{
+			Title:  "Build done",
+			Body:   "CI passed",
+			Icon:   "https://example.com/claude.png",
+			Sender: "Claude · session abc",
+		})
+		aps := m["aps"].(map[string]any)
+		if aps["mutable-content"] != float64(1) {
+			t.Errorf("mutable-content = %v, want 1", aps["mutable-content"])
+		}
+		if m["icon"] != "https://example.com/claude.png" {
+			t.Errorf("icon = %v, want the URL", m["icon"])
+		}
+		if m["sender"] != "Claude · session abc" {
+			t.Errorf("sender = %v, want the display name", m["sender"])
+		}
+	})
+
+	// Sender alone is enough to require the extension (avatar-less comms notif).
+	t.Run("sender alone sets mutable-content", func(t *testing.T) {
+		m := marshalPayload(t, Alert{Body: "hi", Sender: "cron"})
+		aps := m["aps"].(map[string]any)
+		if aps["mutable-content"] != float64(1) {
+			t.Errorf("mutable-content = %v, want 1", aps["mutable-content"])
+		}
+	})
 }
 
 func TestRunHealthCheck(t *testing.T) {

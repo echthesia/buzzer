@@ -1,0 +1,13 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Build done",
+      "body": "CI passed in 2m45s"
+    },
+    "sound": "default",
+    "mutable-content": 1,
+    "thread-id": "claude-abc"
+  },
+  "icon": "https://example.com/avatars/claude.png",
+  "sender": "Claude · session abc"
+}

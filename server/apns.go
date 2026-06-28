@@ -61,6 +61,8 @@ type Alert struct {
 	ThreadID          string         // groups related notifications
 	InterruptionLevel string         // passive | active | time-sensitive | critical
 	URL               string         // custom key the app opens on tap
+	Icon              string         // avatar image URL; the NSE renders it as the sender avatar
+	Sender            string         // display name shown as the sender
 	Custom            map[string]any // any extra custom keys (outside aps)
 }
 
@@ -81,8 +83,9 @@ func interruptionLevel(s string) payload.EInterruptionLevel {
 	}
 }
 
-// Send delivers one alert notification to a single device token.
-func (p *Pusher) Send(deviceToken string, a Alert) PushResult {
+// buildPayload turns an Alert into an APNs payload. Split out from Send so the
+// payload shape can be unit-tested without an APNs client.
+func buildPayload(a Alert) *payload.Payload {
 	pl := payload.NewPayload()
 	if a.Title != "" {
 		pl = pl.AlertTitle(a.Title)
@@ -111,9 +114,27 @@ func (p *Pusher) Send(deviceToken string, a Alert) PushResult {
 	if a.URL != "" {
 		pl = pl.Custom("url", a.URL)
 	}
+	// An icon or sender turns this into a communication notification: the device's
+	// Notification Service Extension needs mutable-content=1 to wake up, then reads
+	// these custom keys to build the sender avatar + name.
+	if a.Icon != "" || a.Sender != "" {
+		pl = pl.MutableContent()
+		if a.Icon != "" {
+			pl = pl.Custom("icon", a.Icon)
+		}
+		if a.Sender != "" {
+			pl = pl.Custom("sender", a.Sender)
+		}
+	}
 	for k, v := range a.Custom {
 		pl = pl.Custom(k, v)
 	}
+	return pl
+}
+
+// Send delivers one alert notification to a single device token.
+func (p *Pusher) Send(deviceToken string, a Alert) PushResult {
+	pl := buildPayload(a)
 
 	n := &apns2.Notification{
 		DeviceToken: deviceToken,

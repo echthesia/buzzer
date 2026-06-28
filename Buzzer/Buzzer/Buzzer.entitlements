@@ -2,19 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Register for remote notifications. "development" routes to the APNs
-	     sandbox, which is what Xcode/dev builds use. Xcode rewrites this to
-	     "production" automatically for App Store / TestFlight distribution. -->
 	<key>aps-environment</key>
 	<string>development</string>
-	<!-- Required on macOS: the app is sandboxed (ENABLE_APP_SANDBOX=YES), so
-	     outbound HTTP to the relay (/register, /notify) needs this. No-op on iOS. -->
-	<key>com.apple.security.network.client</key>
+	<key>com.apple.developer.usernotifications.communication</key>
 	<true/>
-	<!-- Lets "interruption-level":"time-sensitive" pushes break through Focus.
-	     Without it iOS silently downgrades them to normal. (On a real device this
-	     capability must also be enabled on the App ID; automatic signing handles it.) -->
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
 </plist>
