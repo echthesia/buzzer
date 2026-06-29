@@ -12,6 +12,7 @@
 //
 
 import CryptoKit
+import ImageIO
 import Intents
 import os
 import UserNotifications
@@ -19,10 +20,21 @@ import UserNotifications
 private let log = Logger(subsystem: "com.melissaefoster.Buzzer.BuzzerNotificationService",
                          category: "icons")
 
-class NotificationService: UNNotificationServiceExtension {
+final class NotificationService: UNNotificationServiceExtension {
 
-    var contentHandler: ((UNNotificationContent) -> Void)?
-    var bestAttemptContent: UNMutableNotificationContent?
+    /// Reject avatars larger than this. NSEs have a hard ~24 MB memory ceiling,
+    /// and an avatar only needs to be small — a cap keeps a large or hostile URL
+    /// from getting the extension jetsammed mid-download.
+    private static let maxIconBytes = 2 * 1024 * 1024
+
+    private var contentHandler: ((UNNotificationContent) -> Void)?
+    private var bestAttemptContent: UNMutableNotificationContent?
+    private var work: Task<Void, Never>?
+
+    // The download Task and serviceExtensionTimeWillExpire() run on different
+    // threads and both want to deliver. This guards delivery to exactly once.
+    private let lock = NSLock()
+    private var didDeliver = false
 
     override func didReceive(_ request: UNNotificationRequest,
                              withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -31,35 +43,51 @@ class NotificationService: UNNotificationServiceExtension {
         bestAttemptContent = best
 
         guard let best else {
-            contentHandler(request.content)
+            deliver(request.content)
             return
         }
 
         let info = request.content.userInfo
         let sender = (info["sender"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let iconURLString = info["icon"] as? String
+        let iconURLString = (info["icon"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Not a communication push — deliver as-is.
         guard (sender?.isEmpty == false) || (iconURLString?.isEmpty == false) else {
-            contentHandler(best)
+            deliver(best)
             return
         }
 
-        Task {
+        work = Task {
             let updated = await self.communicationContent(base: best,
                                                           request: request,
                                                           sender: sender,
                                                           iconURLString: iconURLString)
-            contentHandler(updated ?? best)
+            self.deliver(updated ?? best)
         }
     }
 
     override func serviceExtensionTimeWillExpire() {
-        // The avatar fetch ran past the deadline — deliver the plain banner so the
-        // notification is never dropped.
-        if let contentHandler, let bestAttemptContent {
-            contentHandler(bestAttemptContent)
+        // The avatar fetch ran past the deadline — cancel it and deliver the
+        // plain banner so the notification is never dropped.
+        work?.cancel()
+        if let bestAttemptContent {
+            deliver(bestAttemptContent)
         }
+    }
+
+    /// Calls the system content handler exactly once; the second caller (timeout
+    /// vs. async completion, whichever loses the race) is a no-op.
+    private func deliver(_ content: UNNotificationContent) {
+        lock.lock()
+        if didDeliver {
+            lock.unlock()
+            return
+        }
+        didDeliver = true
+        let handler = contentHandler
+        contentHandler = nil
+        lock.unlock()
+        handler?(content)
     }
 
     // MARK: - Communication notification
@@ -79,13 +107,14 @@ class NotificationService: UNNotificationServiceExtension {
         let conversationID = threadID.isEmpty ? displayName : threadID
 
         var avatar: INImage?
-        if let iconURLString, !iconURLString.isEmpty {
-            if let file = await cachedAvatarFile(for: iconURLString) {
-                avatar = INImage(url: file)
-            }
-            // Avatar fetch failure is non-fatal: a comms notification without an
-            // image still shows the sender name with a monogram.
+        if let iconURLString, !iconURLString.isEmpty,
+           let data = await avatarData(for: iconURLString) {
+            // INImage(imageData:) embeds the bytes, so the system renderer (a
+            // separate process) doesn't need to read our sandboxed cache file.
+            avatar = INImage(imageData: data)
         }
+        // Avatar fetch failure is non-fatal: a comms notification without an
+        // image still shows the sender name with a monogram.
 
         let handle = INPersonHandle(value: conversationID, type: .unknown)
         let person = INPerson(personHandle: handle,
@@ -120,9 +149,11 @@ class NotificationService: UNNotificationServiceExtension {
 
     // MARK: - Avatar cache
 
-    /// Returns a local file URL for the icon, downloading it once and caching it
+    /// Returns the avatar image bytes, downloading them once and caching them
     /// keyed by the URL. Repeated icons (the common case) skip the network.
-    private func cachedAvatarFile(for urlString: String) async -> URL? {
+    /// Rejects oversized or non-image payloads so a bad URL can't poison the
+    /// cache or crash the extension.
+    private func avatarData(for urlString: String) async -> Data? {
         guard let url = URL(string: urlString),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return nil }
@@ -131,13 +162,13 @@ class NotificationService: UNNotificationServiceExtension {
         guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
         let dir = caches.appendingPathComponent("buzzer-icons", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        // sha256 of the URL is the cache key — opaque, collision-resistant, and
+        // not attacker-controllable (no path traversal, no caller-set extension).
+        let dest = dir.appendingPathComponent(sha256(urlString))
 
-        let ext = url.pathExtension.isEmpty ? "img" : url.pathExtension
-        let dest = dir.appendingPathComponent(sha256(urlString)).appendingPathExtension(ext)
-
-        if fm.fileExists(atPath: dest.path) {
+        if let cached = try? Data(contentsOf: dest), !cached.isEmpty {
             log.debug("icon cache hit: \(urlString, privacy: .public)")
-            return dest
+            return cached
         }
 
         log.debug("icon cache miss, downloading: \(urlString, privacy: .public)")
@@ -145,18 +176,34 @@ class NotificationService: UNNotificationServiceExtension {
         req.timeoutInterval = 10
         do {
             let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  !data.isEmpty else {
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 log.error("icon download failed: bad response for \(urlString, privacy: .public)")
                 return nil
             }
-            try data.write(to: dest, options: .atomic)
-            return dest
+            guard !data.isEmpty, data.count <= Self.maxIconBytes else {
+                log.error("icon rejected: \(data.count) bytes (cap \(Self.maxIconBytes))")
+                return nil
+            }
+            guard Self.isImageData(data) else {
+                log.error("icon rejected: not a decodable image")
+                return nil
+            }
+            // Caching is best-effort; a write failure just means we re-download.
+            try? data.write(to: dest, options: .atomic)
+            return data
         } catch {
             log.error("icon download error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    /// True if the bytes decode as an image (PNG/JPEG/GIF/HEIC/…). Guards against
+    /// caching HTML/JSON/garbage that a misconfigured icon URL might return.
+    private static func isImageData(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetType(source) != nil,
+              CGImageSourceGetCount(source) > 0 else { return false }
+        return true
     }
 
     private func sha256(_ s: String) -> String {
