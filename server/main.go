@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -164,6 +165,8 @@ type notifyRequest struct {
 	ThreadID          string         `json:"threadId"`          // groups related notifications
 	InterruptionLevel string         `json:"interruptionLevel"` // passive|active|time-sensitive|critical
 	URL               string         `json:"url"`               // opened by the app when the notification is tapped
+	Icon              string         `json:"icon"`              // http(s) URL of an avatar image the app shows as the sender
+	Sender            string         `json:"sender"`            // display name shown as the sender (e.g. "Claude · session abc")
 	Data              map[string]any `json:"data"`              // arbitrary extra custom keys
 	Token             string         `json:"token"`             // optional: target one device; otherwise fan out to all
 }
@@ -186,6 +189,12 @@ func (s *server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "provide at least one of 'title' or 'body'"})
 		return
 	}
+	// An icon must be a fetchable http(s) URL: the Notification Service Extension
+	// downloads it on the device to use as the sender avatar.
+	if req.Icon != "" && !isHTTPURL(req.Icon) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "'icon' must be an http(s) URL"})
+		return
+	}
 
 	var targets []string
 	if req.Token != "" {
@@ -203,6 +212,8 @@ func (s *server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		ThreadID:          req.ThreadID,
 		InterruptionLevel: req.InterruptionLevel,
 		URL:               req.URL,
+		Icon:              req.Icon,
+		Sender:            req.Sender,
 		Custom:            req.Data,
 	}
 
@@ -225,6 +236,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// isHTTPURL reports whether s is an absolute http or https URL with a host —
+// the shape the on-device extension can actually fetch an icon from.
+func isHTTPURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // preview returns a short, log-safe prefix of a device token.

@@ -2,7 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>aps-environment</key>
+	<!-- macOS push uses com.apple.developer.aps-environment, NOT the iOS
+	     `aps-environment` key (see Buzzer.entitlements). This file is selected
+	     only for the macOS SDK via CODE_SIGN_ENTITLEMENTS[sdk=macosx*]; iOS/
+	     visionOS keep Buzzer.entitlements. "development" routes to the APNs
+	     sandbox; Xcode rewrites it to "production" for distribution. -->
+	<key>com.apple.developer.aps-environment</key>
 	<string>development</string>
 	<key>com.apple.developer.usernotifications.communication</key>
 	<true/>

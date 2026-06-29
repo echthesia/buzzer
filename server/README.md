@@ -109,6 +109,8 @@ All fields (only `title`/`body` — at least one — are required):
 | `threadId` | string | Groups related notifications in the stack. |
 | `interruptionLevel` | string | `passive` \| `active` \| `time-sensitive` \| `critical`. `time-sensitive` breaks through Focus (app has the entitlement); `critical` needs Apple approval. |
 | `url` | string | The app opens this URL when the notification is **tapped**. |
+| `icon` | string | http(s) URL of an avatar image. Turns the push into a **communication notification**: the app downloads (and caches) the image and shows it as a round sender avatar. See below. |
+| `sender` | string | Display name shown as the sender (e.g. `"Claude · session abc"`), replacing the app name. Also triggers the communication-notification style on its own (avatar-less). |
 | `data` | object | Arbitrary extra custom keys delivered to the app as `userInfo`. |
 | `token` | string | Target one device instead of fanning out to all. |
 
@@ -121,6 +123,28 @@ curl -X POST localhost:8080/notify \
        "url":"https://ci.example.com/run/123","threadId":"ci",
        "interruptionLevel":"time-sensitive"}'
 ```
+
+#### Custom sender icons (communication notifications)
+
+Pass `icon` and/or `sender` to distinguish *who* is buzzing — useful when several
+apps, CI jobs, or Claude sessions push the same device:
+
+```sh
+curl -X POST localhost:8080/notify \
+  -H 'Authorization: Bearer YOUR_TOKEN' \
+  -H 'content-type: application/json' \
+  -d '{"title":"Build done","body":"CI passed in 2m45s",
+       "icon":"https://example.com/avatars/claude.png",
+       "sender":"Claude · session abc","threadId":"claude-abc"}'
+```
+
+When `icon`/`sender` are present the relay sets `mutable-content: 1` so the app's
+**Notification Service Extension** runs on the device: it downloads the icon
+(caching it keyed by URL, so the same icon is fetched only once), builds an
+`INSendMessageIntent`, and the banner renders with a round sender avatar + name
+in place of the Buzzer glyph. `threadId` becomes the conversation identifier, so
+messages from the same sender group together. Pushes **without** `icon`/`sender`
+are unaffected and render exactly as before.
 
 ### `GET /health`
 ```sh
@@ -135,4 +159,13 @@ Simulator via `simctl`, which exercises the app's notification handling without
 touching APNs or this relay:
 ```sh
 xcrun simctl push booted com.melissaefoster.Buzzer payload.example.apns
+```
+
+`payload.icon.example.apns` is the same, but with `mutable-content: 1` plus
+`icon`/`sender`, so it exercises the **Notification Service Extension** and the
+communication-notification rendering. `simctl push` triggers the NSE, so this is
+the fast local loop for the avatar path — point `icon` at a reachable image URL
+(the simulator can reach your host's `localhost`):
+```sh
+xcrun simctl push booted com.melissaefoster.Buzzer payload.icon.example.apns
 ```
