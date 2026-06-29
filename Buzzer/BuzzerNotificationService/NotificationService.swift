@@ -132,9 +132,16 @@ final class NotificationService: UNNotificationServiceExtension {
                                          serviceName: nil,
                                          sender: person,
                                          attachments: nil)
-        // The sender's INPerson image becomes the avatar for a one-to-one
-        // conversation; setImage(forParameterNamed:) is only needed for groups
-        // (and is unavailable on native macOS), so we rely on the INPerson image.
+        // The avatar only actually renders when it's set on the intent via
+        // setImage(forParameterNamed:) — the INPerson image alone is not enough
+        // (confirmed across several Apple devforum threads). That API is
+        // unavailable on native macOS, so Mac builds fall back to the INPerson
+        // image (and may not show an avatar — a macOS platform limitation).
+        #if !os(macOS)
+        if let avatar {
+            intent.setImage(avatar, forParameterNamed: \.sender)
+        }
+        #endif
 
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
