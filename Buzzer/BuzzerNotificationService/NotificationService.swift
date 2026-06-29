@@ -134,14 +134,20 @@ final class NotificationService: UNNotificationServiceExtension {
                                          attachments: nil)
         // The avatar only actually renders when it's set on the intent via
         // setImage(forParameterNamed:) — the INPerson image alone is not enough
-        // (confirmed across several Apple devforum threads). That API is
-        // unavailable on native macOS, so Mac builds fall back to the INPerson
-        // image (and may not show an avatar — a macOS platform limitation).
-        #if !os(macOS)
+        // (confirmed across several Apple devforum threads).
+        //
+        // Only the Swift *key-path* overlay (setImage(_:forParameterNamed: \.sender))
+        // is marked @available(macOS, unavailable); the underlying ObjC
+        // setImage:forParameterNamed: has no macOS exclusion. NS_REFINED_FOR_SWIFT
+        // surfaces it in Swift as __setImage(_:forParameterNamed:), which is
+        // callable on macOS. \.sender resolves to the parameter name "sender".
         if let avatar {
+            #if os(macOS)
+            intent.__setImage(avatar, forParameterNamed: "sender")
+            #else
             intent.setImage(avatar, forParameterNamed: \.sender)
+            #endif
         }
-        #endif
 
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
