@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Developer ID distribution of the macOS app: a signed, notarizable .app
+	     you can drop in /Applications. Crucially, the Developer ID provisioning
+	     profile carries com.apple.developer.aps-environment = PRODUCTION (unlike
+	     an Xcode dev build's "development"/sandbox token), so the device token
+	     works against the production Buzzer relay (env=production). -->
+	<key>method</key>
+	<string>developer-id</string>
+	<key>teamID</key>
+	<string>9363F8639X</string>
+	<!-- Let Xcode manage the Developer ID cert + Developer-ID provisioning
+	     profiles (with Push Notifications) when run with
+	     -allowProvisioningUpdates. -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+</dict>
+</plist>

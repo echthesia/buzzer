@@ -12,3 +12,6 @@
 /build/
 *.xcarchive
 *.ipa
+
+# Local secrets (BUZZER_TOKEN for testing against the relay)
+.env
