@@ -48,7 +48,7 @@ final class PushManager: NSObject, ObservableObject, UNUserNotificationCenterDel
     }
 
     private var platformName: String {
-        #if os(macOS)
+        #if os(macOS) || targetEnvironment(macCatalyst)
         return "macos"
         #elseif os(visionOS)
         return "visionos"

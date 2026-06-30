@@ -7,8 +7,6 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<!-- Required for communication notifications: declares the intent types the
-	     app supports so INSendMessageIntent donations restyle the notification. -->
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>
